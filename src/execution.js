@@ -7,6 +7,9 @@ import {
     post
 } from './xhr';
 
+import Rules from './utils/rules';
+
+import invariant from 'invariant';
 import {
     filter,
     map,
@@ -16,7 +19,6 @@ import {
     negate,
     last,
     assign,
-    find,
     partial,
     identity,
     flatten,
@@ -67,9 +69,8 @@ export function getData(projectId, elements, executionConfiguration = {}) {
         }
     });
 
-    /*eslint-disable new-cap*/
+    // eslint-disable-next-line new-cap
     const d = $.Deferred();
-    /*eslint-enable new-cap*/
 
     // Execute request
     post('/gdc/internal/projects/' + projectId + '/experimental/executions', {
@@ -185,7 +186,7 @@ const generatedMetricDefinition = item => {
     return { element, hash: hashItem(item), definition, sort };
 };
 
-const isDerivedMetric = (item) => {
+const isDerived = (item) => {
     const type = get(item, 'type');
     return (type === 'fact' || type === 'attribute' || !allFiltersEmpty(item));
 };
@@ -312,10 +313,9 @@ const dateFilterToWhere = f => {
     return { [dimensionUri]: { '$between': between, '$granularity': granularity } };
 };
 
-const metricToDefinition = metric => ({
-    element: get(metric, 'objectUri'),
-    hash: hashItem(metric),
-    sort: !metric.showPoP ? get(metric, 'sort') : null
+const createDerivedMetric = measure => ({
+    element: get(measure, 'objectUri'),
+    sort: !measure.showPoP ? get(measure, 'sort') : null
 });
 
 const isDateFilterExecutable = dateFilter =>
@@ -327,67 +327,62 @@ const isAttributeFilterExecutable = listAttributeFilter =>
 
 const sortToOrderBy = item => ({ column: get(item, 'element'), direction: get(item, 'sort') });
 
+const isPoP = ({ showPoP }) => showPoP;
+const isContribution = ({ showInPercent }) => showInPercent;
+
+const isPureMetric = ({ type }) => type === 'metric';
+
+const rules = new Rules();
+
+rules.addRule(
+    [isPoP, isContribution],
+    createContributionPoPMetric
+);
+
+rules.addRule(
+    [isPoP],
+    createPoPMetric
+);
+
+rules.addRule(
+    [isContribution],
+    createContributionMetric
+);
+
+rules.addRule(
+    [isDerived],
+    createDerivedMetric
+);
+
+rules.addRule(
+    [isPureMetric],
+    createPureMetric
+);
+
+function getMetricFactory(measure) {
+    const factory = rules.match(measure);
+
+    invariant(factory, `Unknown factory for: ${measure}`);
+
+    return factory;
+}
+
 export const mdToExecutionConfiguration = (mdObj) => {
     const { filters } = mdObj;
     const measures = map(mdObj.measures, ({ measure }) => measure);
-    const measureSort = map(measures, hashItem);
-    const categories = map(mdObj.categories, ({ category }) => category);
-    const attributes = map(categories, categoryToElement);
-    const contributionMetrics = map(
-        filter(measures, m => m.showInPercent && !m.showPoP),
-        partial(contributionMetricDefinition, find(categories, c => c.type === 'attribute' || c.type === 'date'))
-    );
+    const attributeFilters = map(filter(filters, ({ listAttributeFilter }) => listAttributeFilter !== undefined), attributeFilterToWhere);
+    const dateFilters = map(filter(filters, ({ dateFilterSettings }) => dateFilterSettings !== undefined), dateFilterToWhere);
 
-    const date = find([].concat(categories, filters), c => (c.type === 'date' || c.dateFilter));
-
-    const popMetrics = map(
-        filter(measures, m => m.showPoP && !m.showInPercent),
-        partial(popMetricDefinition, date)
-    );
-    const contributionPoPMetrics = map(
-        filter(measures, m => m.showPoP && m.showInPercent),
-        partial(contributionPoPMetricDefinition, date, find(categories, c => c.type === 'attribute' || c.type === 'date'))
-    );
-    const factMetrics = map(filter(measures, m => m.type === 'fact' && !m.showInPercent && !m.showPoP), generatedMetricDefinition);
-    const metrics = map(filter(measures, m => m.type === 'metric' && !m.showInPercent), metric => {
-        if (isEmpty(metric.measureFilters)) {
-            return metricToDefinition(metric);
-        }
-
-        return generatedMetricDefinition(metric);
-    });
-    const attributeMetrics = map(filter(measures, m => m.type === 'attribute' && !m.showInPercent && !m.showPoP), generatedMetricDefinition);
-    const attributeFilters = map(filter(filters, ({ listAttributeFilter }) => isAttributeFilterExecutable(listAttributeFilter)), attributeFilterToWhere);
-    const dateFilters = map(filter(filters, ({ dateFilter }) => isDateFilterExecutable(dateFilter)), dateFilterToWhere);
-
-    const allMetrics = [].concat(
-        factMetrics,
-        attributeMetrics,
-        popMetrics,
-        metrics,
-        contributionMetrics,
-        contributionPoPMetrics
-    );
-
-    const allMetricsSorted = map(measureSort, (hash) => {
-        return filter(flatten(allMetrics), metric => {
-            return metric.hash === hash;
-        });
-    });
-
-    const allItems = [].concat(
-        attributes,
-        flatten(allMetricsSorted)
-    );
+    const metrics = map(measures, measure => getMetricFactory(measure)(measure, mdObj));
 
     const orderBy = map(filter(allItems, item => !!item.sort), sortToOrderBy);
     const where = [].concat(attributeFilters, dateFilters).reduce(assign, {});
 
     return { execution: {
-        columns: filter(map(allItems, 'element'), identity),
+        columns: filter(map(metrics, 'element'), identity),
         orderBy,
         where,
-        definitions: filter(map(allItems, 'definition'), identity)
+        definitions: filter(map(metrics, 'definition'), identity)
     } };
 };
 
