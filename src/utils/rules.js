@@ -1,3 +1,6 @@
+import invariant from 'invariant';
+import { find, every } from 'lodash';
+
 export default class Rules {
     constructor() {
         this.rules = [];
@@ -8,7 +11,7 @@ export default class Rules {
     }
 
     match(subject) {
-        const [,callback] = find(this.rules, ([tests]) => tests.every(test => test(subject)));
+        const [, callback] = find(this.rules, ([tests]) => every(tests, test => test(subject)));
 
         invariant(callback, 'Callback not found :-(');
 
