@@ -320,10 +320,10 @@ const attributeFilterToWhere = f => {
 };
 
 const dateFilterToWhere = f => {
-    const dimensionUri = get(f, 'dateFilter.dimension');
+    const dateUri = get(f, 'dateFilter.dimension') || get(f, 'dateFilter.dataset');
     const granularity = get(f, 'dateFilter.granularity');
     const between = [get(f, 'dateFilter.from'), get(f, 'dateFilter.to')];
-    return { [dimensionUri]: { '$between': between, '$granularity': granularity } };
+    return { [dateUri]: { '$between': between, '$granularity': granularity } };
 };
 
 const isPoP = ({ showPoP }) => showPoP;
