@@ -275,14 +275,9 @@ const createPoPMetric = (measure, mdObj) => {
 };
 
 const createContributionPoPMetric = (measure, mdObj) => {
-    const category = first(getCategories(mdObj));
     const date = getAttribute(mdObj);
 
-    // TODO: Somehow these are the same thing
-    console.log(category);
-    console.log(date);
-
-    const generated = createContributionMetric(category ? getDate(category) : date, measure);
+    const generated = createContributionMetric(measure, mdObj);
 
     const title = `% ${get(measure, 'title')} - previous year`.replace(/^(% )+/, '% ');
     const format = CONTRIBUTION_METRIC_FORMAT;
